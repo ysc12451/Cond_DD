@@ -130,16 +130,26 @@ class ContextUnet(nn.Module):
         self.down1 = UnetDown(n_feat, n_feat)
         self.down2 = UnetDown(n_feat, 2 * n_feat)
 
-        self.to_vec = nn.Sequential(nn.AvgPool2d(7), nn.GELU())
+        '''            
+        change here if 
+        RuntimeError: Sizes of tensors must match except in dimension 1. Expected size 14 but got size 16 for tensor number 1 in the list
+        occurs
+        '''
+        self.to_vec = nn.Sequential(nn.AvgPool2d(8), nn.GELU()) 
 
         self.timeembed1 = EmbedFC(1, 2*n_feat)
         self.timeembed2 = EmbedFC(1, 1*n_feat)
         self.contextembed1 = EmbedFC(n_classes, 2*n_feat)
         self.contextembed2 = EmbedFC(n_classes, 1*n_feat)
 
+        '''            
+        change here if 
+        RuntimeError: Sizes of tensors must match except in dimension 1. Expected size 14 but got size 16 for tensor number 1 in the list
+        occurs
+        '''
         self.up0 = nn.Sequential(
             # nn.ConvTranspose2d(6 * n_feat, 2 * n_feat, 7, 7), # when concat temb and cemb end up w 6*n_feat
-            nn.ConvTranspose2d(2 * n_feat, 2 * n_feat, 7, 7), # otherwise just have 2*n_feat
+            nn.ConvTranspose2d(2 * n_feat, 2 * n_feat, 8, 8), # otherwise just have 2*n_feat
             nn.GroupNorm(8, 2 * n_feat),
             nn.ReLU(),
         )
@@ -185,6 +195,7 @@ class ContextUnet(nn.Module):
         # up2 = self.up1(up1, down2) # if want to avoid add and multiply embeddings
         up2 = self.up1(cemb1*up1+ temb1, down2)  # add and multiply embeddings
         up3 = self.up2(cemb2*up2+ temb2, down1)
+        # print([up3.shape, x.shape])
         out = self.out(torch.cat((up3, x), 1))
         return out
 
@@ -306,15 +317,18 @@ def train_mnist():
     # hardcoding these here
     data_path = '/mnt/c/Code/cs771_project/data'
     n_epoch = 20
-    batch_size = 256
+    batch_size = 100
     n_T = 400 # 500
     device = "cuda:0"
     # device = "cpu"
     n_classes = 101
     n_feat = 128 # 128 ok, 256 better (but slower)
+    img_size = 64
     lrate = 1e-4
     save_model = True
-    save_dir = os.path.join(data_path, 'outputs_test/')
+    save_dir = os.path.join(data_path, f'outputs_{img_size}/')
+    if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
     ws_test = [2.0] # strength of generative guidance
 
     ddpm = DDPM(nn_model=ContextUnet(in_channels=3, n_feat=n_feat, n_classes=n_classes), betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=0.1)
@@ -324,7 +338,7 @@ def train_mnist():
     # ddpm.load_state_dict(torch.load("./data/diffusion_outputs/ddpm_unet01_mnist_9.pth"))
 
     # tf = transforms.Compose([transforms.ToTensor()]) # mnist is already normalised 0 to 1
-    img_size = 56
+    
     train_transform = transforms.Compose([
         transforms.Resize(img_size),
         transforms.CenterCrop(img_size),
