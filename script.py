@@ -15,14 +15,14 @@ from model import ResidualConvBlock, UnetDown, UnetUp, EmbedFC, ContextUnet, ddp
 
 def train_mnist(data_path, save_dir):
     # hardcoding these here
-    n_epoch = 20
-    batch_size = 100
+    n_epoch = 50
+    batch_size = 200
     n_T = 400 # 500
     device = "cuda:0"
     # device = "cpu"
-    n_classes = 101
+    n_classes = 5
     n_feat = 128 # 128 ok, 256 better (but slower)
-    img_size = 32
+    img_size = 64
     lrate = 1e-4
     save_model = True
     if not os.path.exists(save_dir):
@@ -129,11 +129,12 @@ def generate(model_path, output_path):
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
     n_feat = 128
-    n_classes = 101
+    n_classes = 5
     n_T = 400
     img_size = 64
     device = "cuda:0"
     ws_test = [2.0]
+    num_gen = 5
     # mean, std = torch.Tensor((0.485, 0.456, 0.406)).unsqueeze(1).unsqueeze(2), torch.Tensor((0.229, 0.224, 0.225)).unsqueeze(1).unsqueeze(2)
     invTrans = transforms.Compose([transforms.Normalize(mean = [ 0., 0., 0. ],
                                                      std = [ 1/0.229, 1/0.224, 1/0.225 ]),
@@ -146,24 +147,29 @@ def generate(model_path, output_path):
     ddpm.load_state_dict(torch.load(model_path))
     ddpm.eval()
     with torch.no_grad():
-        n_sample = 1*n_classes
+        n_sample = num_gen*n_classes
         for w_i, w in enumerate(ws_test):
             x_gen, x_gen_store = ddpm.sample(n_sample, n_classes, (3, img_size, img_size), device, guide_w=w)
             # x_real = torch.Tensor(x_gen.shape).to(device)
             # trans_x_real = x_real*std.to(device) + mean.to(device)
             trans_x_gen = invTrans(x_gen)
-            grid = make_grid(trans_x_gen, nrow=10)
+            grid = make_grid(trans_x_gen, nrow=5)
             save_image(grid, save_dir + f"image{img_size}_ep{ep}_w{w}_norm.png")
             print('saved image at ' + save_dir + f"image{img_size}_ep{ep}_w{w}_norm.png")
 
 
 if __name__ == "__main__":
-    data_path = '/mnt/c/Code/cs771_project/data/food-101-subset/images'
-    save_dir = '/mnt/c/Code/cs771_project/data/outputs_class5'
-    # data_path = '/storage08/shuchen/DDPM/'
-    train_mnist(data_path, save_dir)
-
-    model_path = f'/mnt/c/Code/cs771_project/data/outputs_64/model_39.pth'
-    output_path = '/mnt/c/Code/cs771_project/data/outputs_64'
-    # generate(model_path, output_path)
+    train = True
+    if train:
+      # data_path = '/mnt/c/Code/cs771_project/data/food-101-subset/images'
+      # save_dir = '/mnt/c/Code/cs771_project/data/outputs_class5'
+      data_path = '/storage08/shuchen/DDPM/food-101-subset/images/'
+      save_dir = '/storage08/shuchen/DDPM/outputs_c5_epoch100/'
+      train_mnist(data_path, save_dir)
+    else:
+      # model_path = f'/mnt/c/Code/cs771_project/data/outputs_64/model_39.pth'
+      # output_path = '/mnt/c/Code/cs771_project/data/outputs_64'
+      model_path = f'/storage08/shuchen/DDPM/outputs_class5/model_49.pth'
+      output_path = '/storage08/shuchen/DDPM/outputs_class5/'
+      generate(model_path, output_path)
 
