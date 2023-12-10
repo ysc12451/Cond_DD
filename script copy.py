@@ -29,6 +29,8 @@ from matplotlib.animation import FuncAnimation, PillowWriter
 import numpy as np
 import os
 
+n_classes = 101
+
 class ResidualConvBlock(nn.Module):
     def __init__(
         self, in_channels: int, out_channels: int, is_res: bool = False
@@ -40,12 +42,12 @@ class ResidualConvBlock(nn.Module):
         self.same_channels = in_channels==out_channels
         self.is_res = is_res
         self.conv1 = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, 3, 1, 1), # kernel_size=3, stride=1, padding=1,
+            nn.Conv2d(in_channels, out_channels, 3, 1, 1),
             nn.BatchNorm2d(out_channels),
             nn.GELU(),
         )
         self.conv2 = nn.Sequential(
-            nn.Conv2d(out_channels, out_channels, 3, 1, 1), # kernel_size=3, stride=1, padding=1,
+            nn.Conv2d(out_channels, out_channels, 3, 1, 1),
             nn.BatchNorm2d(out_channels),
             nn.GELU(),
         )
@@ -72,7 +74,7 @@ class UnetDown(nn.Module):
         '''
         process and downscale the image feature maps
         '''
-        layers = [ResidualConvBlock(in_channels, out_channels), nn.MaxPool2d(2)] # kernel_size=2
+        layers = [ResidualConvBlock(in_channels, out_channels), nn.MaxPool2d(2)]
         self.model = nn.Sequential(*layers)
 
     def forward(self, x):
@@ -118,7 +120,7 @@ class EmbedFC(nn.Module):
 
 
 class ContextUnet(nn.Module):
-    def __init__(self, in_channels, n_feat = 256, n_classes=101):
+    def __init__(self, in_channels, n_feat = 256, n_classes=10):
         super(ContextUnet, self).__init__()
 
         self.in_channels = in_channels
@@ -253,7 +255,7 @@ class DDPM(nn.Module):
         # return MSE between added noise, and our predicted noise
         return self.loss_mse(noise, self.nn_model(x_t, c, _ts / self.n_T, context_mask))
 
-    def sample(self, n_sample, n_classes, size, device, guide_w = 0.0):
+    def sample(self, n_sample, size, device, guide_w = 0.0):
         # we follow the guidance sampling scheme described in 'Classifier-Free Diffusion Guidance'
         # to make the fwd passes efficient, we concat two versions of the dataset,
         # one with context_mask=0 and the other context_mask=1
@@ -303,6 +305,7 @@ class DDPM(nn.Module):
 
 
 def train_mnist():
+
     # hardcoding these here
     data_path = '/mnt/c/Code/cs771_project/data'
     n_epoch = 20
@@ -315,7 +318,7 @@ def train_mnist():
     lrate = 1e-4
     save_model = True
     save_dir = os.path.join(data_path, 'outputs_test/')
-    ws_test = [2.0] # strength of generative guidance
+    ws_test = [0.0, 0.5, 2.0] # strength of generative guidance
 
     ddpm = DDPM(nn_model=ContextUnet(in_channels=3, n_feat=n_feat, n_classes=n_classes), betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=0.1)
     ddpm.to(device)
@@ -324,16 +327,16 @@ def train_mnist():
     # ddpm.load_state_dict(torch.load("./data/diffusion_outputs/ddpm_unet01_mnist_9.pth"))
 
     # tf = transforms.Compose([transforms.ToTensor()]) # mnist is already normalised 0 to 1
-    img_size = 56
+    imag_size = 28
     train_transform = transforms.Compose([
-        transforms.Resize(img_size),
-        transforms.CenterCrop(img_size),
+        transforms.Resize(imag_size),
+        transforms.CenterCrop(imag_size),
         transforms.ToTensor(),
         transforms.Normalize((0.485, 0.456, 0.406), (0.229, 0.224, 0.225))])
 
     dataset = Food101(data_path, split='train', download=True, transform=train_transform)
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True, num_workers=5)
-    optim = torch.optim.AdamW(ddpm.parameters(), lr=lrate)
+    optim = torch.optim.Adam(ddpm.parameters(), lr=lrate)
 
     for ep in range(n_epoch):
         print(f'epoch {ep}')
@@ -363,7 +366,7 @@ def train_mnist():
         with torch.no_grad():
             n_sample = 1*n_classes
             for w_i, w in enumerate(ws_test):
-                x_gen, x_gen_store = ddpm.sample(n_sample, n_classes, (3, img_size, img_size), device, guide_w=w)
+                x_gen, x_gen_store = ddpm.sample(n_sample, (3, 28, 28), device, guide_w=w)
 
                 # append some real images at bottom, order by class also
                 x_real = torch.Tensor(x_gen.shape).to(device)
@@ -407,13 +410,11 @@ def generate(model_path):
     data_path = '/mnt/c/Code/cs771_project/data'
     save_dir = os.path.join(data_path, 'outputs_test/')
     n_feat = 128
-    n_classes = 101
     n_T = 400
-    img_size = 56
     device = "cuda:0"
-    ws_test = [2.0]
+    ws_test = [0.0, 0.5, 2.0]
     # mean, std = torch.Tensor((0.485, 0.456, 0.406)).unsqueeze(1).unsqueeze(2), torch.Tensor((0.229, 0.224, 0.225)).unsqueeze(1).unsqueeze(2)
-    invTrans = transforms.Compose([transforms.Normalize(mean = [ 0., 0., 0. ],
+    invTrans = transforms.Compose([ transforms.Normalize(mean = [ 0., 0., 0. ],
                                                      std = [ 1/0.229, 1/0.224, 1/0.225 ]),
                                 transforms.Normalize(mean = [ -0.485, -0.456, -0.406 ],
                                                      std = [ 1., 1., 1. ]),
@@ -426,7 +427,7 @@ def generate(model_path):
     with torch.no_grad():
         n_sample = 1*n_classes
         for w_i, w in enumerate(ws_test):
-            x_gen, x_gen_store = ddpm.sample(n_sample, n_classes, (3, img_size, img_size), device, guide_w=w)
+            x_gen, x_gen_store = ddpm.sample(n_sample, (3, 28, 28), device, guide_w=w)
             # x_real = torch.Tensor(x_gen.shape).to(device)
             # trans_x_real = x_real*std.to(device) + mean.to(device)
             trans_x_gen = invTrans(x_gen)
@@ -436,6 +437,6 @@ def generate(model_path):
 
 
 if __name__ == "__main__":
-    train_mnist()
-    # generate('/mnt/c/Code/cs771_project/data/outputs_test/model_19.pth')
+    # train_mnist()
+    generate('/mnt/c/Code/cs771_project/data/outputs_test/model_19.pth')
 
