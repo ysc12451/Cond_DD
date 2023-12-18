@@ -10,24 +10,27 @@ from torchvision import models, datasets, transforms
 from torchvision.datasets import MNIST, Food101
 from torchvision.utils import save_image, make_grid
 import matplotlib.pyplot as plt
+import json
 
 from model import ResidualConvBlock, UnetDown, UnetUp, EmbedFC, ContextUnet, ddpm_schedules, DDPM
 
-def train_mnist(data_path, save_dir):
+def train_mnist(data_path, save_dir, paras):
     # hardcoding these here
-    n_epoch = 50
-    batch_size = 200
-    n_T = 400 # 500
-    device = "cuda:0"
-    # device = "cpu"
-    n_classes = 5
-    n_feat = 128 # 128 ok, 256 better (but slower)
-    img_size = 64
-    lrate = 1e-4
+    n_epoch = paras["n_epoch"]
+    batch_size = paras["batch_size"]
+    n_T = paras["n_T"]
+    device = paras["device"]
+    n_classes = paras["n_classes"]
+    n_feat = paras["n_feat"]
+    img_size = paras["img_size"]
+    lrate = paras["lrate"]
+    betas = paras["betas"]
+    drop_p = paras["drop_p"]
+    ws_test = paras["ws_test"]
+    
     save_model = True
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    ws_test = [2.0] # strength of generative guidance
 
     # optionally load a model
     # ddpm.load_state_dict(torch.load("./data/diffusion_outputs/ddpm_unet01_mnist_9.pth"))
@@ -44,7 +47,8 @@ def train_mnist(data_path, save_dir):
                             transforms.Normalize(mean = [ -0.485, -0.456, -0.406 ],
                                                     std = [ 1., 1., 1. ]),
                             ])
-    ddpm = DDPM(nn_model=ContextUnet(in_channels=3, n_feat=n_feat, n_classes=n_classes), betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=0.1)
+    # ddpm = DDPM(nn_model=ContextUnet(in_channels=3, n_feat=n_feat, n_classes=n_classes), betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=0.1)
+    ddpm = DDPM(nn_model=ContextUnet(in_channels=3, n_feat=n_feat, n_classes=n_classes), betas=betas, n_T=n_T, device=device, drop_prob=drop_p)
     ddpm.to(device)
 
     dataset = datasets.ImageFolder(root=data_path, transform=train_transform)
@@ -83,8 +87,8 @@ def train_mnist(data_path, save_dir):
                 x_gen, x_gen_store = ddpm.sample(n_sample, n_classes, (3, img_size, img_size), device, guide_w=w)
                 trans_x_gen = invTrans(x_gen)
                 grid = make_grid(trans_x_gen, nrow=10)
-                save_image(grid, save_dir + f"image_ep{ep}_w{w}_norm.png")
-                print('saved image at ' + save_dir + f"image_ep{ep}_w{w}_norm.png")
+                save_image(grid, save_dir + f"image_ep{ep}_w{w}.png")
+                print('saved image at ' + save_dir + f"image_ep{ep}_w{w}.png")
 
                 # append some real images at bottom, order by class also
                 # x_real = torch.Tensor(x_gen.shape).to(device)
@@ -123,17 +127,21 @@ def train_mnist(data_path, save_dir):
             torch.save(ddpm.state_dict(), save_dir + f"model_{ep}.pth")
             print('saved model at ' + save_dir + f"model_{ep}.pth")
 
-def generate(model_path, output_path):
+def generate(model_path, output_path, paras):
     ep = os.path.splitext(os.path.basename(model_path))[0].split('_')[-1]
-    save_dir = os.path.join(output_path, 'outputs_gen/')
+    save_dir = os.path.join(output_path, f'outputs_gen/')
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
-    n_feat = 128
-    n_classes = 5
-    n_T = 400
-    img_size = 64
-    device = "cuda:0"
-    ws_test = [2.0]
+    
+    n_T = paras["n_T"]
+    device = paras["device"]
+    n_classes = paras["n_classes"]
+    n_feat = paras["n_feat"]
+    img_size = paras["img_size"]
+    betas = paras["betas"]
+    drop_p = paras["drop_p"]
+    ws_test = paras["ws_test"]
+    
     num_gen = 5
     # mean, std = torch.Tensor((0.485, 0.456, 0.406)).unsqueeze(1).unsqueeze(2), torch.Tensor((0.229, 0.224, 0.225)).unsqueeze(1).unsqueeze(2)
     invTrans = transforms.Compose([transforms.Normalize(mean = [ 0., 0., 0. ],
@@ -142,7 +150,7 @@ def generate(model_path, output_path):
                                                      std = [ 1., 1., 1. ]),
                                ])
     nn_model=ContextUnet(in_channels=3, n_feat=n_feat, n_classes=n_classes)
-    ddpm = DDPM(nn_model, betas=(1e-4, 0.02), n_T=n_T, device=device, drop_prob=0.1)
+    ddpm = DDPM(nn_model, betas=betas, n_T=n_T, device=device, drop_prob=drop_p)
     ddpm.to(device)
     ddpm.load_state_dict(torch.load(model_path))
     ddpm.eval()
@@ -154,22 +162,48 @@ def generate(model_path, output_path):
             # trans_x_real = x_real*std.to(device) + mean.to(device)
             trans_x_gen = invTrans(x_gen)
             grid = make_grid(trans_x_gen, nrow=5)
-            save_image(grid, save_dir + f"image{img_size}_ep{ep}_w{w}_norm.png")
-            print('saved image at ' + save_dir + f"image{img_size}_ep{ep}_w{w}_norm.png")
+            save_image(grid, save_dir + f"image{img_size}_ep{ep}.png")
+            print('saved image at ' + save_dir + f"image{img_size}_ep{ep}.png")
 
 
 if __name__ == "__main__":
     train = True
+    
+    paras = {
+      "n_epoch" : 400,
+      "batch_size" : 200,
+      "n_T" : 500, # 500
+      "device" : "cuda:0",
+      "n_classes" : 5,
+      "n_feat" : 256, # 128 ok, 256 better (but slower)
+      "img_size" : 64,
+      "lrate" : 5e-5,
+      "betas" : (1e-4,0.02),
+      "drop_p" : 0.2,
+      "ws_test" : [4.0], # strength of generative guidance
+    }
+    
+
+    
     if train:
       # data_path = '/mnt/c/Code/cs771_project/data/food-101-subset/images'
       # save_dir = '/mnt/c/Code/cs771_project/data/outputs_class5'
       data_path = '/storage08/shuchen/DDPM/food-101-subset/images/'
-      save_dir = '/storage08/shuchen/DDPM/outputs_c5_epoch100/'
-      train_mnist(data_path, save_dir)
+      save_dir = '/storage08/shuchen/DDPM/outputs_c5_w8_lr5/'
+      if not os.path.exists(save_dir):
+        os.makedirs(save_dir)
+      file_path = os.path.join(save_dir, "paras.json")
+      with open(file_path, 'w') as json_file:
+        json.dump(paras, json_file)
+      print(f'Parameters written to {file_path}')
+      
+      train_mnist(data_path, save_dir, paras)
+
     else:
-      # model_path = f'/mnt/c/Code/cs771_project/data/outputs_64/model_39.pth'
-      # output_path = '/mnt/c/Code/cs771_project/data/outputs_64'
-      model_path = f'/storage08/shuchen/DDPM/outputs_class5/model_49.pth'
-      output_path = '/storage08/shuchen/DDPM/outputs_class5/'
-      generate(model_path, output_path)
+      for epoch in (list(range(10, 200, 10)) + [{n_epoch}-1]):
+        # model_path = f'/mnt/c/Code/cs771_project/data/outputs_64/model_39.pth'
+        # output_path = '/mnt/c/Code/cs771_project/data/outputs_64'
+        model_path = f'/storage08/shuchen/DDPM/outputs_c5_w4/model_{epoch}.pth'
+        output_path = '/storage08/shuchen/DDPM/outputs_c5_w4/'
+        generate(model_path, output_path, paras)
 
